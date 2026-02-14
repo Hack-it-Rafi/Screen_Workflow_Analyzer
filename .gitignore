@@ -1,0 +1,11 @@
+node_modules
+venv
+.pt
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.mp4
+*.avi
+.env
+.DS_Store
