@@ -1,21 +1,101 @@
 import { Link } from "react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import useAxiosSecure from "../Hooks/useAxiosSecure";
 
 export default function Videos() {
     const [filter, setFilter] = useState("all");
+    const [videos, setVideos] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [isUploading, setIsUploading] = useState(false);
+    const axiosSecure = useAxiosSecure();
 
-    const videos = [
-        { id: "1", title: "Product Demo 2024", duration: "5:32", status: "Completed", date: "Feb 14, 2026", views: 1234, size: "125 MB" },
-        { id: "2", title: "Team Meeting Recording", duration: "45:12", status: "Processing", date: "Feb 13, 2026", views: 89, size: "890 MB" },
-        { id: "3", title: "Marketing Campaign Video", duration: "2:15", status: "Completed", date: "Feb 12, 2026", views: 3456, size: "78 MB" },
-        { id: "4", title: "Training Session Q1", duration: "1:23:45", status: "Completed", date: "Feb 11, 2026", views: 567, size: "1.2 GB" },
-        { id: "5", title: "Customer Testimonial", duration: "3:42", status: "Completed", date: "Feb 10, 2026", views: 2341, size: "95 MB" },
-        { id: "6", title: "Product Launch Event", duration: "32:18", status: "Failed", date: "Feb 9, 2026", views: 0, size: "450 MB" },
-    ];
+    // Fetch videos from API
+    const fetchVideos = async () => {
+        try {
+            const response = await axiosSecure.get('/videos');
+            setVideos(response.data.data || []);
+        } catch (error) {
+            console.error('Error fetching videos:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Initial fetch
+    useEffect(() => {
+        fetchVideos();
+    }, []);
+
+    // Auto-refresh for processing videos
+    useEffect(() => {
+        const hasProcessingVideos = videos.some((v: any) => v.status === 'processing');
+
+        if (hasProcessingVideos) {
+            const interval = setInterval(() => {
+                fetchVideos();
+            }, 5000); // Poll every 5 seconds
+
+            return () => clearInterval(interval);
+        }
+    }, [videos]);
+
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        if (file.type !== 'video/mp4') {
+            alert('Please upload an MP4 video file');
+            return;
+        }
+
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('caption', file.name);
+
+        try {
+            await axiosSecure.post('/videos/create-video', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+
+            // Refresh videos list
+            await fetchVideos();
+            alert('Video uploaded successfully! Processing started.');
+        } catch (error) {
+            console.error('Error uploading video:', error);
+            alert('Failed to upload video');
+        } finally {
+            setIsUploading(false);
+            event.target.value = ''; // Reset file input
+        }
+    };
 
     const filteredVideos = filter === "all"
         ? videos
-        : videos.filter(v => v.status.toLowerCase() === filter);
+        : videos.filter((v: any) => v.status === filter);
+
+    const getStatusInfo = (status: string) => {
+        switch (status) {
+            case 'completed':
+                return { label: 'COMPLETED', className: 'bg-green-900/30 text-green-400 border-gray-800' };
+            case 'processing':
+                return { label: 'PROCESSING', className: 'bg-yellow-900/30 text-yellow-400 border-yellow-500 animate-pulse' };
+            case 'failed':
+                return { label: 'FAILED', className: 'bg-red-900/30 text-red-400 border-red-500' };
+            default:
+                return { label: status.toUpperCase(), className: 'bg-gray-900/30 text-gray-400 border-gray-500' };
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-linear-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+                <div className="text-green-400 font-mono text-xl animate-pulse">Loading videos...</div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-linear-to-br from-gray-900 via-black to-gray-900">
@@ -26,9 +106,16 @@ export default function Videos() {
                         <h1 className="text-3xl font-bold text-green-400 font-mono">[ VIDEO LIBRARY ]</h1>
                         <p className="text-cyan-400 mt-2 font-mono text-sm">// Manage and analyze your video content</p>
                     </div>
-                    <button className="mt-4 md:mt-0 bg-green-600 text-black px-6 py-3 rounded font-semibold hover:bg-green-500 transition border border-green-400 font-mono shadow-[0_0_20px_rgba(0,255,0,0.3)]">
-                        📤 UPLOAD NEW VIDEO
-                    </button>
+                    <label className="mt-4 md:mt-0 bg-green-600 text-black px-6 py-3 rounded font-semibold hover:bg-green-500 transition border border-green-400 font-mono shadow-[0_0_20px_rgba(0,255,0,0.3)] cursor-pointer inline-block">
+                        {isUploading ? '⏳ UPLOADING...' : '📤 UPLOAD NEW VIDEO'}
+                        <input
+                            type="file"
+                            accept="video/mp4"
+                            className="hidden"
+                            onChange={handleFileUpload}
+                            disabled={isUploading}
+                        />
+                    </label>
                 </div>
 
                 {/* Filters */}
@@ -50,7 +137,7 @@ export default function Videos() {
                                 : "bg-transparent text-green-400 border-2 border-gray-800/50 hover:border-gray-800"
                                 }`}
                         >
-                            COMPLETED ({videos.filter(v => v.status === "Completed").length})
+                            COMPLETED ({videos.filter((v: any) => v.status === "completed").length})
                         </button>
                         <button
                             onClick={() => setFilter("processing")}
@@ -59,7 +146,7 @@ export default function Videos() {
                                 : "bg-transparent text-yellow-400 border-2 border-yellow-500/50 hover:border-yellow-500"
                                 }`}
                         >
-                            PROCESSING ({videos.filter(v => v.status === "Processing").length})
+                            PROCESSING ({videos.filter((v: any) => v.status === "processing").length})
                         </button>
                         <button
                             onClick={() => setFilter("failed")}
@@ -68,47 +155,56 @@ export default function Videos() {
                                 : "bg-transparent text-red-400 border-2 border-red-500/50 hover:border-red-500"
                                 }`}
                         >
-                            FAILED ({videos.filter(v => v.status === "Failed").length})
+                            FAILED ({videos.filter((v: any) => v.status === "failed").length})
                         </button>
                     </div>
                 </div>
 
                 {/* Videos Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredVideos.map((video) => (
-                        <Link
-                            key={video.id}
-                            to={`/videos/${video.id}`}
-                            className="bg-black/80 border-2 border-gray-800/30 rounded-lg overflow-hidden hover:border-gray-800 hover:shadow-[0_0_20px_rgba(0,255,0,0.3)] transition group"
-                        >
-                            <div className="aspect-video bg-linear-to-br from-green-900/50 to-cyan-900/50 flex items-center justify-center group-hover:from-green-900/70 group-hover:to-cyan-900/70 transition border-b-2 border-gray-800/30">
-                                <span className="text-6xl">🎬</span>
-                            </div>
-                            <div className="p-4">
-                                <h3 className="font-semibold text-green-400 mb-2 group-hover:text-cyan-400 transition font-mono">
-                                    {video.title}
-                                </h3>
-                                <div className="flex items-center justify-between text-sm text-cyan-400 mb-3 font-mono">
-                                    <span>⏱️ {video.duration}</span>
-                                    <span>👁️ {video.views.toLocaleString()}</span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs text-gray-500 font-mono">{video.date} • {video.size}</span>
-                                    <span
-                                        className={`px-2 py-1 rounded text-xs font-medium border font-mono ${video.status === "Completed"
-                                            ? "bg-green-900/30 text-green-400 border-gray-800"
-                                            : video.status === "Processing"
-                                                ? "bg-yellow-900/30 text-yellow-400 border-yellow-500"
-                                                : "bg-red-900/30 text-red-400 border-red-500"
-                                            }`}
-                                    >
-                                        {video.status.toUpperCase()}
-                                    </span>
-                                </div>
-                            </div>
-                        </Link>
-                    ))}
-                </div>
+                {filteredVideos.length === 0 ? (
+                    <div className="text-center py-20">
+                        <div className="text-6xl mb-4">🎬</div>
+                        <p className="text-cyan-400 font-mono text-lg">No videos found</p>
+                        <p className="text-gray-500 font-mono text-sm mt-2">Upload your first video to get started</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredVideos.map((video: any) => {
+                            const statusInfo = getStatusInfo(video.status);
+                            return (
+                                <Link
+                                    key={video._id}
+                                    to={`/videos/${video._id}`}
+                                    className="bg-black/80 border-2 border-gray-800/30 rounded-lg overflow-hidden hover:border-gray-800 hover:shadow-[0_0_20px_rgba(0,255,0,0.3)] transition group"
+                                >
+                                    <div className="aspect-video bg-linear-to-br from-green-900/50 to-cyan-900/50 flex items-center justify-center group-hover:from-green-900/70 group-hover:to-cyan-900/70 transition border-b-2 border-gray-800/30">
+                                        <span className="text-6xl">
+                                            {video.status === 'processing' ? '⏳' : video.status === 'failed' ? '❌' : '🎬'}
+                                        </span>
+                                    </div>
+                                    <div className="p-4">
+                                        <h3 className="font-semibold text-green-400 mb-2 group-hover:text-cyan-400 transition font-mono truncate">
+                                            {video.caption || 'Untitled Video'}
+                                        </h3>
+                                        <div className="flex items-center justify-between text-sm text-cyan-400 mb-3 font-mono">
+                                            <span>📅 {new Date(video.createdAt).toLocaleDateString()}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs text-gray-500 font-mono">
+                                                ID: {video._id.slice(0, 8)}...
+                                            </span>
+                                            <span
+                                                className={`px-2 py-1 rounded text-xs font-medium border font-mono ${statusInfo.className}`}
+                                            >
+                                                {statusInfo.label}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </Link>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         </div>
     );

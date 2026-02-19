@@ -4,20 +4,20 @@ import jwt from 'jsonwebtoken';
 import globalErrorHandler from './app/middlewares/globalErrorHandler';
 import notFound from './app/middlewares/notFound';
 import router from './app/routes';
-const app: Application = express();
 import cookieParser from 'cookie-parser';
-// const port = 3000
+
+const app: Application = express();
 
 const corsOptions = {
   origin: ['http://localhost:5173'],
   credentials: true,
+  optionsSuccessStatus: 200,
 };
 
 // parsers
+app.use(cookieParser());
 app.use(express.json());
 app.use(cors(corsOptions));
-app.use(cookieParser());
-app.options('*', cors(corsOptions));
 
 // application routes
 app.use('/api/v1', router);
@@ -37,7 +37,7 @@ app.post('/api/v1/jwt', async (req: Request, res: Response) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-        // maxAge: 3600000, 
+        // maxAge: 3600000,
         maxAge: 12 * 60 * 60 * 1000,
       })
       .send({ success: true });
