@@ -8,6 +8,12 @@ export default function VideoDetail() {
     const [loading, setLoading] = useState(true);
     const axiosSecure = useAxiosSecure();
 
+    // Extract filename from fileUrl (e.g., "/video-files/12345_video.mp4" -> "12345_video.mp4")
+    const getVideoStreamUrl = (fileUrl: string) => {
+        const fileName = fileUrl.split('/').pop();
+        return `http://localhost:3000/api/v1/videos/file/${fileName}`;
+    };
+
     // Fetch video details
     const fetchVideo = async () => {
         try {
@@ -88,29 +94,36 @@ export default function VideoDetail() {
                     {/* Video Player Section */}
                     <div className="lg:col-span-2">
                         <div className="bg-black/80 border-2 border-gray-800 rounded-lg overflow-hidden shadow-[0_0_30px_rgba(0,255,0,0.2)]">
-                            <div className="aspect-video bg-linear-to-br from-green-900/30 to-cyan-900/30 flex items-center justify-center border-b-2 border-gray-800">
-                                <div className="text-center text-green-400">
-                                    {video.status === 'processing' ? (
-                                        <>
-                                            <span className="text-8xl mb-4 block animate-pulse">⏳</span>
-                                            <p className="text-xl font-semibold font-mono">[ PROCESSING VIDEO ]</p>
-                                            <p className="text-sm mt-2 text-cyan-400 font-mono">// Please wait for analysis to complete</p>
-                                        </>
-                                    ) : video.status === 'failed' ? (
-                                        <>
-                                            <span className="text-8xl mb-4 block">❌</span>
-                                            <p className="text-xl font-semibold font-mono text-red-400">[ PROCESSING FAILED ]</p>
-                                            <p className="text-sm mt-2 text-cyan-400 font-mono">// Video analysis encountered an error</p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span className="text-8xl mb-4 block">▶️</span>
-                                            <p className="text-xl font-semibold font-mono">[ VIDEO PLAYER ]</p>
-                                            <p className="text-sm mt-2 text-cyan-400 font-mono">// Click to play video</p>
-                                        </>
-                                    )}
+                            {/* Video Player */}
+                            {video.status === 'completed' ? (
+                                <video
+                                    className="w-full aspect-video bg-black"
+                                    controls
+                                    controlsList="nodownload"
+                                    src={getVideoStreamUrl(video.fileUrl)}
+                                >
+                                    Your browser does not support the video tag.
+                                </video>
+                            ) : (
+                                <div className="aspect-video bg-linear-to-br from-green-900/30 to-cyan-900/30 flex items-center justify-center border-b-2 border-gray-800">
+                                    <div className="text-center text-green-400">
+                                        {video.status === 'processing' ? (
+                                            <>
+                                                <span className="text-8xl mb-4 block animate-pulse">⏳</span>
+                                                <p className="text-xl font-semibold font-mono">[ PROCESSING VIDEO ]</p>
+                                                <p className="text-sm mt-2 text-cyan-400 font-mono">// Please wait for analysis to complete</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="text-8xl mb-4 block">❌</span>
+                                                <p className="text-xl font-semibold font-mono text-red-400">[ PROCESSING FAILED ]</p>
+                                                <p className="text-sm mt-2 text-cyan-400 font-mono">// Video analysis encountered an error</p>
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
+
                             <div className="p-6">
                                 <h1 className="text-2xl font-bold text-green-400 mb-4 font-mono">{video.caption || 'Untitled Video'}</h1>
                                 <div className="flex flex-wrap gap-4 text-sm text-cyan-400 font-mono">
@@ -118,12 +131,17 @@ export default function VideoDetail() {
                                     <span>🆔 {video._id}</span>
                                 </div>
                                 <div className="mt-6 flex gap-3">
-                                    <button
-                                        className="px-4 py-2 bg-green-600 text-black rounded hover:bg-green-500 transition border border-green-400 font-mono"
-                                        disabled={video.status !== 'completed'}
+                                    <a
+                                        href={video.status === 'completed' ? getVideoStreamUrl(video.fileUrl) : '#'}
+                                        download={video.caption || 'video.mp4'}
+                                        className={`px-4 py-2 rounded transition border font-mono ${video.status === 'completed'
+                                                ? 'bg-green-600 text-black hover:bg-green-500 border-green-400 cursor-pointer'
+                                                : 'bg-gray-600 text-gray-400 border-gray-500 cursor-not-allowed'
+                                            }`}
+                                        onClick={(e) => video.status !== 'completed' && e.preventDefault()}
                                     >
                                         📥 DOWNLOAD
-                                    </button>
+                                    </a>
                                     <button className="px-4 py-2 bg-transparent border-2 border-red-500 text-red-400 rounded hover:bg-red-500/10 transition font-mono">
                                         🗑️ DELETE
                                     </button>
@@ -213,8 +231,8 @@ export default function VideoDetail() {
                                 <div className="flex items-center justify-between">
                                     <span className="text-cyan-400 font-mono text-sm">AI Processing</span>
                                     <span className={`font-mono ${video.status === 'completed' ? 'text-green-400' :
-                                            video.status === 'processing' ? 'text-yellow-400 animate-pulse' :
-                                                'text-red-400'
+                                        video.status === 'processing' ? 'text-yellow-400 animate-pulse' :
+                                            'text-red-400'
                                         }`}>
                                         {video.status === 'completed' ? '✓' :
                                             video.status === 'processing' ? '⏳' : '✗'}

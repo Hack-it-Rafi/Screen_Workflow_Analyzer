@@ -52,6 +52,7 @@ export default function Videos() {
         const formData = new FormData();
         formData.append('video', file);
         formData.append('caption', file.name);
+        console.log(formData);
 
         try {
             await axiosSecure.post('/videos/create-video', formData, {
