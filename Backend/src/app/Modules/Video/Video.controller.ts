@@ -6,7 +6,7 @@ import axios from 'axios';
 import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
 import { VIDEOServices } from './Video.service';
-import { getObjectFromMinIO, uploadToMinIO } from './Video.utility';
+import { uploadToMinIO, minioClient } from './Video.utility';
 
 const bucketName = 'video-files';
 
@@ -70,6 +70,14 @@ const createVIDEO = catchAsync(async (req, res) => {
     });
   }
 
+  // Check if user is authenticated
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'User not authenticated',
+    });
+  }
+
   const videoFile = req.file;
   const tempFilePath = path.join(process.cwd(), `${Date.now()}_temp.mp4`);
 
@@ -90,11 +98,12 @@ const createVIDEO = catchAsync(async (req, res) => {
 
     const fileUrl = `/${bucketName}/${file.originalname}`;
 
-    // Prepare data for database with 'processing' status
+    // Prepare data for database with 'processing' status and authenticated user
     const VIDEOData = {
       ...req.body,
       fileUrl,
       status: 'processing' as const,
+      user: req.user._id, // Use authenticated user's ID
     };
 
     // Save to database immediately with 'processing' status
@@ -159,10 +168,125 @@ const getSingleVIDEO = catchAsync(async (req, res) => {
 const getVIDEOFile = catchAsync(async (req, res) => {
   const { fileName } = req.params;
   try {
-    const content = await getObjectFromMinIO(bucketName, fileName);
-    res.status(200).json({ filename: fileName, content: content });
+    // Get file metadata to determine size
+    const stat = await minioClient.statObject(bucketName, fileName);
+    const fileSize = stat.size;
+
+    // Parse range header
+    const range = req.headers.range;
+
+    if (range) {
+      // Parse range header (e.g., "bytes=0-1023")
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+
+      // Set response headers for partial content
+      res.status(206); // Partial Content
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Length', chunkSize);
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Cache-Control', 'no-cache');
+
+      // Stream the requested range
+      const stream = await minioClient.getObject(bucketName, fileName);
+      
+      let bytesRead = 0;
+      let shouldSkip = true;
+
+      stream.on('data', (chunk) => {
+        if (shouldSkip) {
+          // Skip bytes until we reach the start position
+          if (bytesRead + chunk.length <= start) {
+            bytesRead += chunk.length;
+            return;
+          } else if (bytesRead < start) {
+            // Partial skip - we've reached the start position mid-chunk
+            const offset = start - bytesRead;
+            bytesRead = start;
+            shouldSkip = false;
+            
+            const remainingInRange = end - bytesRead + 1;
+            const chunkToSend = chunk.slice(offset, offset + remainingInRange);
+            bytesRead += chunkToSend.length;
+            res.write(chunkToSend);
+            
+            if (bytesRead > end) {
+              stream.destroy();
+              res.end();
+            }
+            return;
+          }
+        }
+
+        // Send bytes within the requested range
+        if (bytesRead + chunk.length <= end + 1) {
+          bytesRead += chunk.length;
+          res.write(chunk);
+        } else {
+          // This is the last chunk in the range
+          const remaining = end - bytesRead + 1;
+          const finalChunk = chunk.slice(0, remaining);
+          res.write(finalChunk);
+          stream.destroy();
+          res.end();
+        }
+      });
+
+      stream.on('end', () => {
+        if (!res.writableEnded) {
+          res.end();
+        }
+      });
+
+      stream.on('error', (error) => {
+        // eslint-disable-next-line no-console
+        console.error('Stream error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error streaming video', error });
+        } else if (!res.writableEnded) {
+          res.end();
+        }
+      });
+
+      // Handle client disconnect
+      req.on('close', () => {
+        if (stream && !stream.destroyed) {
+          stream.destroy();
+        }
+      });
+    } else {
+      // No range requested, stream the entire file
+      res.setHeader('Content-Length', fileSize);
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'no-cache');
+
+      const stream = await minioClient.getObject(bucketName, fileName);
+      stream.pipe(res);
+
+      stream.on('error', (error) => {
+        // eslint-disable-next-line no-console
+        console.error('Stream error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error streaming video', error });
+        } else if (!res.writableEnded) {
+          res.end();
+        }
+      });
+
+      req.on('close', () => {
+        if (stream && !stream.destroyed) {
+          stream.destroy();
+        }
+      });
+    }
   } catch (error) {
-    res.status(500).json({ message: 'Could not retrieve file.', error });
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Could not retrieve file.', error });
+    }
   }
 });
 

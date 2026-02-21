@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 const addVIDEOSchema = z.object({
   body: z.object({ 
-    content: z.string(),
-    user: z.string()
+    caption: z.string().optional(),
   }),
 });
 

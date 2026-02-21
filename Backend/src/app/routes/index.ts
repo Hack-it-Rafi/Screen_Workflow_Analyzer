@@ -12,7 +12,7 @@ const moduleRoutes = [
     route: UserRoutes
   },
   {
-    path: '/video',
+    path: '/videos',
     //http://localhost:3000/api/v1/video
     route: VIDEORouters
   }
