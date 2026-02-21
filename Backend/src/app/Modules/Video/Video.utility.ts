@@ -57,8 +57,6 @@ export const getObjectFromMinIO = async (
         resolve(content);
       });
 
-      console.log(dataStream);
-
       dataStream.on('error', (err) => {
         reject(err);
       });

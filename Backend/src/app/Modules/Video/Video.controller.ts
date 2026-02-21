@@ -10,13 +10,36 @@ import { uploadToMinIO, minioClient } from './Video.utility';
 
 const bucketName = 'video-files';
 
-// Background function to process prediction
+// Helper function to get video duration/size based timeout
+const getTimeoutForVideo = (fileSize: number): number => {
+  // Base timeout: 10 minutes for small videos
+  const baseTimeout = 600000; // 10 minutes
+
+  // Add 5 minutes for every 50MB
+  const sizeMB = fileSize / (1024 * 1024);
+  const additionalTimeout = Math.floor(sizeMB / 50) * 300000;
+
+  // Maximum 30 minutes timeout
+  return Math.min(baseTimeout + additionalTimeout, 1800000);
+};
+
+// Background function to process prediction with retry
 const processPredictionInBackground = async (
   videoId: string,
   tempFilePath: string,
   originalname: string,
+  fileSize: number,
+  retryCount = 0,
 ) => {
+  const maxRetries = 2;
+  const timeout = getTimeoutForVideo(fileSize);
+
   try {
+    // eslint-disable-next-line no-console
+    console.log(
+      `🎬 Processing video ${videoId} (${(fileSize / (1024 * 1024)).toFixed(2)}MB, timeout: ${timeout / 1000}s, attempt: ${retryCount + 1}/${maxRetries + 1})`,
+    );
+
     // Send video to prediction service
     const formData = new FormData();
     formData.append('video', fs.createReadStream(tempFilePath), {
@@ -31,7 +54,9 @@ const processPredictionInBackground = async (
         headers: {
           ...formData.getHeaders(),
         },
-        timeout: 300000, // 5 minutes timeout
+        timeout,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       },
     );
 
@@ -45,24 +70,74 @@ const processPredictionInBackground = async (
 
     // eslint-disable-next-line no-console
     console.log(`✅ Video ${videoId} prediction completed successfully`);
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error(`❌ Video ${videoId} prediction failed:`, error);
+  } catch (error: unknown) {
+    const axiosError = error as {
+      code?: string;
+      message?: string;
+      response?: { data?: { message?: string } };
+    };
+    const isTimeout =
+      axiosError.code === 'ECONNABORTED' ||
+      axiosError.message?.includes('timeout');
+    const errorMessage =
+      axiosError.response?.data?.message ||
+      axiosError.message ||
+      'Unknown error';
 
-    // Update video status to failed
+    // eslint-disable-next-line no-console
+    console.error(
+      `❌ Video ${videoId} prediction failed (attempt ${retryCount + 1}/${maxRetries + 1}):`,
+      {
+        error: errorMessage,
+        code: axiosError.code,
+        isTimeout,
+      },
+    );
+
+    // Retry logic for timeout errors
+    if (isTimeout && retryCount < maxRetries) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `🔄 Retrying video ${videoId} prediction (attempt ${retryCount + 2}/${maxRetries + 1})...`,
+      );
+
+      // Wait before retrying (exponential backoff)
+      await new Promise((resolve) =>
+        setTimeout(resolve, 5000 * (retryCount + 1)),
+      );
+
+      return processPredictionInBackground(
+        videoId,
+        tempFilePath,
+        originalname,
+        fileSize,
+        retryCount + 1,
+      );
+    }
+
+    // Update video status to failed with error details
     await VIDEOServices.updateVIDEOInDB(videoId, {
       status: 'failed',
+      prediction: JSON.stringify({
+        error: errorMessage,
+        errorCode: axiosError.code,
+        timestamp: new Date().toISOString(),
+        attempts: retryCount + 1,
+      }),
     });
   } finally {
-    // Clean up temporary file
-    if (fs.existsSync(tempFilePath)) {
-      await fs.promises.unlink(tempFilePath);
+    // Clean up temporary file only after all retries
+    if (retryCount >= maxRetries || !fs.existsSync(tempFilePath)) {
+      if (fs.existsSync(tempFilePath)) {
+        await fs.promises.unlink(tempFilePath);
+        // eslint-disable-next-line no-console
+        console.log(`🗑️  Cleaned up temp file for video ${videoId}`);
+      }
     }
   }
 };
 
 const createVIDEO = catchAsync(async (req, res) => {
-  // Check if video file is present in the request
   if (!req.file) {
     return res.status(400).json({
       success: false,
@@ -70,7 +145,6 @@ const createVIDEO = catchAsync(async (req, res) => {
     });
   }
 
-  // Check if user is authenticated
   if (!req.user) {
     return res.status(401).json({
       success: false,
@@ -82,10 +156,8 @@ const createVIDEO = catchAsync(async (req, res) => {
   const tempFilePath = path.join(process.cwd(), `${Date.now()}_temp.mp4`);
 
   try {
-    // Save the uploaded video temporarily
     await fs.promises.writeFile(tempFilePath, videoFile.buffer);
 
-    // Prepare file for MinIO upload
     const file = {
       path: tempFilePath,
       originalname: `${Date.now()}_${videoFile.originalname}`,
@@ -93,32 +165,30 @@ const createVIDEO = catchAsync(async (req, res) => {
       size: videoFile.size,
     };
 
-    // Upload to MinIO
     await uploadToMinIO(bucketName, file);
 
     const fileUrl = `/${bucketName}/${file.originalname}`;
 
-    // Prepare data for database with 'processing' status and authenticated user
     const VIDEOData = {
       ...req.body,
       fileUrl,
       status: 'processing' as const,
-      user: req.user._id, // Use authenticated user's ID
+      user: req.user._id,
     };
 
-    // Save to database immediately with 'processing' status
     const result = await VIDEOServices.createVIDEOIntoDB(VIDEOData);
 
-    // Start background prediction processing (non-blocking)
+    // Start background prediction processing with file size for timeout calculation
     processPredictionInBackground(
       result._id.toString(),
       tempFilePath,
       videoFile.originalname,
+      videoFile.size,
+      0,
     )
       // eslint-disable-next-line no-console
       .catch((err) => console.error('Background processing error:', err));
 
-    // Send immediate response
     sendResponse(res, {
       statusCode: 200,
       success: true,
@@ -134,7 +204,6 @@ const createVIDEO = catchAsync(async (req, res) => {
       },
     });
   } catch (error) {
-    // Clean up temporary file on error
     if (fs.existsSync(tempFilePath)) {
       await fs.promises.unlink(tempFilePath);
     }
@@ -168,51 +237,44 @@ const getSingleVIDEO = catchAsync(async (req, res) => {
 const getVIDEOFile = catchAsync(async (req, res) => {
   const { fileName } = req.params;
   try {
-    // Get file metadata to determine size
     const stat = await minioClient.statObject(bucketName, fileName);
     const fileSize = stat.size;
 
-    // Parse range header
     const range = req.headers.range;
 
     if (range) {
-      // Parse range header (e.g., "bytes=0-1023")
       const parts = range.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = end - start + 1;
 
-      // Set response headers for partial content
-      res.status(206); // Partial Content
+      res.status(206);
       res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
       res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Content-Length', chunkSize);
       res.setHeader('Content-Type', 'video/mp4');
       res.setHeader('Cache-Control', 'no-cache');
 
-      // Stream the requested range
       const stream = await minioClient.getObject(bucketName, fileName);
-      
+
       let bytesRead = 0;
       let shouldSkip = true;
 
       stream.on('data', (chunk) => {
         if (shouldSkip) {
-          // Skip bytes until we reach the start position
           if (bytesRead + chunk.length <= start) {
             bytesRead += chunk.length;
             return;
           } else if (bytesRead < start) {
-            // Partial skip - we've reached the start position mid-chunk
             const offset = start - bytesRead;
             bytesRead = start;
             shouldSkip = false;
-            
+
             const remainingInRange = end - bytesRead + 1;
             const chunkToSend = chunk.slice(offset, offset + remainingInRange);
             bytesRead += chunkToSend.length;
             res.write(chunkToSend);
-            
+
             if (bytesRead > end) {
               stream.destroy();
               res.end();
@@ -221,12 +283,10 @@ const getVIDEOFile = catchAsync(async (req, res) => {
           }
         }
 
-        // Send bytes within the requested range
         if (bytesRead + chunk.length <= end + 1) {
           bytesRead += chunk.length;
           res.write(chunk);
         } else {
-          // This is the last chunk in the range
           const remaining = end - bytesRead + 1;
           const finalChunk = chunk.slice(0, remaining);
           res.write(finalChunk);
@@ -251,14 +311,12 @@ const getVIDEOFile = catchAsync(async (req, res) => {
         }
       });
 
-      // Handle client disconnect
       req.on('close', () => {
         if (stream && !stream.destroyed) {
           stream.destroy();
         }
       });
     } else {
-      // No range requested, stream the entire file
       res.setHeader('Content-Length', fileSize);
       res.setHeader('Content-Type', 'video/mp4');
       res.setHeader('Accept-Ranges', 'bytes');
