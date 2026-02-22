@@ -5,7 +5,8 @@ export interface TVideo {
   fileUrl: string;
   prediction?: string;
   status: 'processing' | 'completed' | 'failed';
-  user: Types.ObjectId;
+  user?: Types.ObjectId;
   createdAt?: Date;
   updatedAt?: Date;
+  telegramChatId?: number;
 }

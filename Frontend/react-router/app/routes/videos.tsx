@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useState, useEffect } from "react";
 import useAxiosSecure from "../Hooks/useAxiosSecure";
+import { FaTelegramPlane } from "react-icons/fa";
 
 export default function Videos() {
     const [filter, setFilter] = useState("all");
@@ -9,7 +10,12 @@ export default function Videos() {
     const [isUploading, setIsUploading] = useState(false);
     const axiosSecure = useAxiosSecure();
 
-    // Fetch videos from API
+    const TELEGRAM_BOT_USERNAME = "Tarnished_Video_Bot";
+
+    const openTelegramBot = () => {
+        window.open(`https://t.me/${TELEGRAM_BOT_USERNAME}`, '_blank');
+    };
+
     const fetchVideos = async () => {
         try {
             const response = await axiosSecure.get('/videos');
@@ -107,16 +113,57 @@ export default function Videos() {
                         <h1 className="text-3xl font-bold text-green-400 font-mono">[ VIDEO LIBRARY ]</h1>
                         <p className="text-cyan-400 mt-2 font-mono text-sm">// Manage and analyze your video content</p>
                     </div>
-                    <label className="mt-4 md:mt-0 bg-green-600 text-black px-6 py-3 rounded font-semibold hover:bg-green-500 transition border border-green-400 font-mono shadow-[0_0_20px_rgba(0,255,0,0.3)] cursor-pointer inline-block">
-                        {isUploading ? '⏳ UPLOADING...' : '📤 UPLOAD NEW VIDEO'}
-                        <input
-                            type="file"
-                            accept="video/mp4"
-                            className="hidden"
-                            onChange={handleFileUpload}
-                            disabled={isUploading}
-                        />
-                    </label>
+                    <div className="flex flex-col sm:flex-row gap-3 mt-4 md:mt-0">
+                        <button
+                            onClick={openTelegramBot}
+                            className="bg-cyan-600 text-white px-6 py-3 rounded font-semibold hover:bg-cyan-500 transition border border-cyan-400 font-mono shadow-[0_0_20px_rgba(0,255,255,0.3)] flex items-center justify-center gap-2"
+                        >
+                            <span><FaTelegramPlane /></span>
+                            <span>UPLOAD VIA TELEGRAM</span>
+                        </button>
+                        <label className="bg-green-600 text-black px-6 py-3 rounded font-semibold hover:bg-green-500 transition border border-green-400 font-mono shadow-[0_0_20px_rgba(0,255,0,0.3)] cursor-pointer inline-block text-center">
+                            {isUploading ? '⏳ UPLOADING...' : '📤 UPLOAD NEW VIDEO'}
+                            <input
+                                type="file"
+                                accept="video/mp4"
+                                className="hidden"
+                                onChange={handleFileUpload}
+                                disabled={isUploading}
+                            />
+                        </label>
+                    </div>
+                </div>
+
+                {/* Telegram Bot Info Card */}
+                <div className="bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border-2 border-cyan-500/50 rounded-lg p-6 mb-6">
+                    <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+                        <div className="text-5xl"><FaTelegramPlane className="text-cyan-600"/></div>
+                        <div className="flex-1">
+                            <h3 className="text-xl font-bold text-cyan-400 font-mono mb-2">
+                                📱 Upload via Telegram Bot
+                            </h3>
+                            <p className="text-gray-300 font-mono text-sm mb-3">
+                                Send videos directly from your phone! Get AI analysis results instantly in your Telegram chat.
+                            </p>
+                            <div className="flex flex-wrap gap-2 text-xs font-mono">
+                                <span className="px-2 py-1 bg-cyan-900/30 text-cyan-400 rounded border border-cyan-500/30">
+                                    ✓ Easy mobile upload
+                                </span>
+                                <span className="px-2 py-1 bg-cyan-900/30 text-cyan-400 rounded border border-cyan-500/30">
+                                    ✓ Instant notifications
+                                </span>
+                                <span className="px-2 py-1 bg-cyan-900/30 text-cyan-400 rounded border border-cyan-500/30">
+                                    ✓ Results in chat
+                                </span>
+                            </div>
+                        </div>
+                        <button
+                            onClick={openTelegramBot}
+                            className="bg-cyan-600 text-white px-6 py-3 rounded font-semibold hover:bg-cyan-500 transition border border-cyan-400 font-mono whitespace-nowrap"
+                        >
+                            OPEN BOT →
+                        </button>
+                    </div>
                 </div>
 
                 {/* Filters */}
