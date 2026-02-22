@@ -11,4 +11,6 @@ export default {
   NODE_ENV: process.env.NODE_ENV,
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  telegram_bot_token: process.env.TELEGRAM_BOT_TOKEN,
+  frontend_url: process.env.FRONTEND_URL || 'http://localhost:5173',
 };

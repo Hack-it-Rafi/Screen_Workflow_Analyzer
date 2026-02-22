@@ -22,6 +22,9 @@ const videoSchema = new Schema<TVideo>(
       unique: false,
       ref: 'User',
     },
+    telegramChatId: {
+      type: Number,
+    }
   },
   {
     timestamps: true,
