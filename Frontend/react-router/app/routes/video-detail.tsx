@@ -6,15 +6,14 @@ export default function VideoDetail() {
     const { id } = useParams();
     const [video, setVideo] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [videoRef, setVideoRef] = useState<HTMLVideoElement | null>(null);
     const axiosSecure = useAxiosSecure();
 
-    // Extract filename from fileUrl (e.g., "/video-files/12345_video.mp4" -> "12345_video.mp4")
     const getVideoStreamUrl = (fileUrl: string) => {
         const fileName = fileUrl.split('/').pop();
         return `http://localhost:3000/api/v1/videos/file/${fileName}`;
     };
 
-    // Fetch video details
     const fetchVideo = async () => {
         try {
             const response = await axiosSecure.get(`/videos/${id}`);
@@ -26,17 +25,31 @@ export default function VideoDetail() {
         }
     };
 
-    // Initial fetch
+    const parseTimeToSeconds = (timeRange: string): number => {
+        // timeRange format: "0s-3s" or "3s-6s"
+        const startTime = timeRange.split('-')[0];
+        return parseInt(startTime.replace('s', ''));
+    };
+
+    const seekToTime = (timeRange: string) => {
+        if (videoRef) {
+            const seconds = parseTimeToSeconds(timeRange);
+            videoRef.currentTime = seconds;
+            videoRef.play();
+
+            videoRef.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
+
     useEffect(() => {
         fetchVideo();
     }, [id]);
 
-    // Auto-refresh if video is processing
     useEffect(() => {
         if (video?.status === 'processing') {
             const interval = setInterval(() => {
                 fetchVideo();
-            }, 5000); // Poll every 5 seconds
+            }, 5000); 
 
             return () => clearInterval(interval);
         }
@@ -66,16 +79,13 @@ export default function VideoDetail() {
 
     const prediction = video.prediction ? JSON.parse(video.prediction) : null;
 
-    // Helper function to format prediction data for display
     const formatPredictionForDisplay = (pred: any) => {
         if (!pred) return null;
 
-        // If there's an error in prediction
         if (pred.error) {
             return { error: pred };
         }
 
-        // Extract only predictions array
         if (pred.predictions && Array.isArray(pred.predictions)) {
             return {
                 predictions: pred.predictions,
@@ -105,7 +115,7 @@ export default function VideoDetail() {
     return (
         <div className="min-h-screen bg-linear-to-br from-gray-900 via-black to-gray-900">
             <div className="container mx-auto px-4 py-8">
-                {/* Breadcrumb */}
+                
                 <div className="mb-6 flex items-center justify-between">
                     <Link to="/videos" className="text-cyan-400 hover:text-cyan-300 font-medium font-mono">
                         &lt;- BACK TO VIDEOS
@@ -114,7 +124,7 @@ export default function VideoDetail() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Video Player Section */}
+                    
                     <div className="lg:col-span-2">
                         <div className="bg-black/80 border-2 border-gray-800 rounded-lg overflow-hidden shadow-[0_0_30px_rgba(0,255,0,0.2)]">
                             {/* Video Player */}
@@ -124,6 +134,7 @@ export default function VideoDetail() {
                                     controls
                                     controlsList="nodownload"
                                     src={getVideoStreamUrl(video.fileUrl)}
+                                    ref={(ref) => setVideoRef(ref)}
                                 >
                                     Your browser does not support the video tag.
                                 </video>
@@ -235,15 +246,22 @@ export default function VideoDetail() {
                                                         <th className="text-left py-3 px-4 text-cyan-400 font-mono font-semibold">Time Range</th>
                                                         <th className="text-left py-3 px-4 text-cyan-400 font-mono font-semibold">Action</th>
                                                         <th className="text-center py-3 px-4 text-cyan-400 font-mono font-semibold">Action Conf.</th>
-                                                        <th className="text-left py-3 px-4 text-cyan-400 font-mono font-semibold">App</th>                                                     
-                                                        <th className="text-center py-3 px-4 text-cyan-400 font-mono font-semibold">App Conf.</th>                                                        
+                                                        <th className="text-left py-3 px-4 text-cyan-400 font-mono font-semibold">App</th>
+                                                        <th className="text-center py-3 px-4 text-cyan-400 font-mono font-semibold">App Conf.</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {formattedPrediction.predictions.map((pred: any, idx: number) => (
                                                         <tr key={idx} className="border-b border-gray-800/20 hover:bg-green-500/5 transition">
                                                             <td className="py-2 px-4 text-gray-400 font-mono">{idx + 1}</td>
-                                                            <td className="py-2 px-4 text-green-400 font-mono">{pred.time_range}</td>
+                                                            <td className="py-2 px-4 text-green-400 font-mono">
+                                                                <button
+                                                                    className="underline hover:text-cyan-400"
+                                                                    onClick={() => seekToTime(pred.time_range)}
+                                                                >
+                                                                    {pred.time_range}
+                                                                </button>
+                                                            </td>
                                                             <td className="py-2 px-4 font-mono">
                                                                 <span className="px-2 py-1 bg-green-900/30 text-green-400 rounded text-xs border border-green-500/30">
                                                                     {pred.action}
@@ -251,8 +269,8 @@ export default function VideoDetail() {
                                                             </td>
                                                             <td className="py-2 px-4 text-center font-mono">
                                                                 <span className={`px-2 py-1 rounded text-xs font-semibold ${pred.action_confidence >= 0.7 ? 'bg-green-900/30 text-green-400 border border-green-500/30' :
-                                                                        pred.action_confidence >= 0.4 ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30' :
-                                                                            'bg-red-900/30 text-red-400 border border-red-500/30'
+                                                                    pred.action_confidence >= 0.4 ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30' :
+                                                                        'bg-red-900/30 text-red-400 border border-red-500/30'
                                                                     }`}>
                                                                     {(pred.action_confidence * 100).toFixed(1)}%
                                                                 </span>
@@ -262,16 +280,16 @@ export default function VideoDetail() {
                                                                     {pred.app}
                                                                 </span>
                                                             </td>
-                                                            
+
                                                             <td className="py-2 px-4 text-center font-mono">
                                                                 <span className={`px-2 py-1 rounded text-xs font-semibold ${pred.app_confidence >= 0.7 ? 'bg-green-900/30 text-green-400 border border-green-500/30' :
-                                                                        pred.app_confidence >= 0.4 ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30' :
-                                                                            'bg-red-900/30 text-red-400 border border-red-500/30'
+                                                                    pred.app_confidence >= 0.4 ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30' :
+                                                                        'bg-red-900/30 text-red-400 border border-red-500/30'
                                                                     }`}>
                                                                     {(pred.app_confidence * 100).toFixed(1)}%
                                                                 </span>
                                                             </td>
-                                                            
+
                                                         </tr>
                                                     ))}
                                                 </tbody>

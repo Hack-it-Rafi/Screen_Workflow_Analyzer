@@ -134,8 +134,7 @@ export default function Videos() {
                     </div>
                 </div>
 
-                {/* Telegram Bot Info Card */}
-                <div className="bg-gradient-to-r from-cyan-900/20 to-blue-900/20 border-2 border-cyan-500/50 rounded-lg p-6 mb-6">
+                <div className="bg-linear-to-r from-cyan-900/20 to-blue-900/20 border-2 border-cyan-500/50 rounded-lg p-6 mb-6">
                     <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
                         <div className="text-5xl"><FaTelegramPlane className="text-cyan-600"/></div>
                         <div className="flex-1">
