@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 // import httpStatus from 'http-status';
 import fs from 'fs';
 import path from 'path';
@@ -26,19 +27,34 @@ const getTimeoutForVideo = (fileSize: number): number => {
 // Background function to process prediction with retry
 const processPredictionInBackground = async (
   videoId: string,
-  tempFilePath: string,
+  fileUrl: string,
   originalname: string,
   fileSize: number,
   retryCount = 0,
 ) => {
   const maxRetries = 2;
   const timeout = getTimeoutForVideo(fileSize);
+  const tempFilePath = path.join(
+    process.cwd(),
+    `${Date.now()}_prediction_temp.mp4`,
+  );
 
   try {
     // eslint-disable-next-line no-console
     console.log(
       `🎬 Processing video ${videoId} (${(fileSize / (1024 * 1024)).toFixed(2)}MB, timeout: ${timeout / 1000}s, attempt: ${retryCount + 1}/${maxRetries + 1})`,
     );
+
+    // Download video from MinIO for prediction
+    const fileName = fileUrl.split('/').pop();
+    const dataStream = await minioClient.getObject(bucketName, fileName || '');
+    const writeStream = fs.createWriteStream(tempFilePath);
+
+    await new Promise((resolve, reject) => {
+      dataStream.pipe(writeStream);
+      dataStream.on('end', resolve);
+      dataStream.on('error', reject);
+    });
 
     // Send video to prediction service
     const formData = new FormData();
@@ -70,6 +86,12 @@ const processPredictionInBackground = async (
 
     // eslint-disable-next-line no-console
     console.log(`✅ Video ${videoId} prediction completed successfully`);
+
+    // Delete temp file after successful processing
+    if (fs.existsSync(tempFilePath)) {
+      await fs.promises.unlink(tempFilePath);
+      console.log(`🗑️  Deleted prediction temp file for video ${videoId}`);
+    }
   } catch (error: unknown) {
     const axiosError = error as {
       code?: string;
@@ -101,6 +123,11 @@ const processPredictionInBackground = async (
         `🔄 Retrying video ${videoId} prediction (attempt ${retryCount + 2}/${maxRetries + 1})...`,
       );
 
+      // Delete temp file before retry
+      if (fs.existsSync(tempFilePath)) {
+        await fs.promises.unlink(tempFilePath);
+      }
+
       // Wait before retrying (exponential backoff)
       await new Promise((resolve) =>
         setTimeout(resolve, 5000 * (retryCount + 1)),
@@ -108,7 +135,7 @@ const processPredictionInBackground = async (
 
       return processPredictionInBackground(
         videoId,
-        tempFilePath,
+        fileUrl,
         originalname,
         fileSize,
         retryCount + 1,
@@ -125,14 +152,13 @@ const processPredictionInBackground = async (
         attempts: retryCount + 1,
       }),
     });
-  } finally {
-    // Clean up temporary file only after all retries
-    if (retryCount >= maxRetries || !fs.existsSync(tempFilePath)) {
-      if (fs.existsSync(tempFilePath)) {
-        await fs.promises.unlink(tempFilePath);
-        // eslint-disable-next-line no-console
-        console.log(`🗑️  Cleaned up temp file for video ${videoId}`);
-      }
+
+    // Delete temp file after all retries exhausted
+    if (fs.existsSync(tempFilePath)) {
+      await fs.promises.unlink(tempFilePath);
+      console.log(
+        `🗑️  Deleted prediction temp file for video ${videoId} after failure`,
+      );
     }
   }
 };
@@ -167,6 +193,10 @@ const createVIDEO = catchAsync(async (req, res) => {
 
     await uploadToMinIO(bucketName, file);
 
+    // Delete temp file immediately after MinIO upload
+    await fs.promises.unlink(tempFilePath);
+    console.log(`🗑️  Deleted temp file: ${tempFilePath}`);
+
     const fileUrl = `/${bucketName}/${file.originalname}`;
 
     const VIDEOData = {
@@ -178,10 +208,11 @@ const createVIDEO = catchAsync(async (req, res) => {
 
     const result = await VIDEOServices.createVIDEOIntoDB(VIDEOData);
 
-    // Start background prediction processing with file size for timeout calculation
+    // Start background prediction processing (non-blocking)
+    // Note: We don't pass tempFilePath anymore since file is in MinIO
     processPredictionInBackground(
       result._id.toString(),
-      tempFilePath,
+      fileUrl, // Pass MinIO URL instead of temp path
       videoFile.originalname,
       videoFile.size,
       0,

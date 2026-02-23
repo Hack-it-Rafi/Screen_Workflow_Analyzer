@@ -71,17 +71,35 @@ const formatPredictionResults = (prediction: any): string => {
 // Background function to process prediction
 const processPredictionInBackground = async (
   videoId: string,
-  tempFilePath: string,
+  fileUrl: string,
   originalname: string,
   fileSize: number,
   chatId: number,
 ) => {
+  const tempFilePath = path.join(
+    process.cwd(),
+    `${Date.now()}_telegram_prediction_temp.mp4`,
+  );
+
   try {
     bot.telegram.sendMessage(
       chatId,
       '🎬 *Processing your video...*\n\nThis may take several minutes depending on the video length.',
       { parse_mode: 'Markdown' },
     );
+
+    // Download video from MinIO for prediction
+    const fileName = fileUrl.split('/').pop();
+    const { minioClient } = await import('../Video/Video.utility');
+    const bucketName = 'video-files';
+    const dataStream = await minioClient.getObject(bucketName, fileName || '');
+    const writeStream = fs.createWriteStream(tempFilePath);
+
+    await new Promise((resolve, reject) => {
+      dataStream.pipe(writeStream);
+      dataStream.on('end', resolve);
+      dataStream.on('error', reject);
+    });
 
     const formData = new FormData();
     formData.append('video', fs.createReadStream(tempFilePath), {
@@ -121,6 +139,14 @@ const processPredictionInBackground = async (
     });
 
     userProcessing.delete(chatId);
+
+    // Delete temp file after successful processing
+    if (fs.existsSync(tempFilePath)) {
+      await fs.promises.unlink(tempFilePath);
+      console.log(
+        `🗑️  Deleted telegram prediction temp file for video ${videoId}`,
+      );
+    }
   } catch (error: unknown) {
     const axiosError = error as {
       code?: string;
@@ -149,9 +175,13 @@ const processPredictionInBackground = async (
     );
 
     userProcessing.delete(chatId);
-  } finally {
+
+    // Delete temp file after failure
     if (fs.existsSync(tempFilePath)) {
       await fs.promises.unlink(tempFilePath);
+      console.log(
+        `🗑️  Deleted telegram prediction temp file for video ${videoId} after failure`,
+      );
     }
   }
 };
@@ -225,7 +255,7 @@ bot.on(message('video'), async (ctx) => {
 
   const video = ctx.message.video;
 
-  // Check file size (limit to 50MB for Telegram API)
+  // Check file size (limit to 100MB for Telegram API)
   if (video.file_size && video.file_size > 100 * 1024 * 1024) {
     return ctx.reply(
       '❌ Video file is too large!\n\n' +
@@ -237,6 +267,8 @@ bot.on(message('video'), async (ctx) => {
 
   await ctx.reply('📥 Downloading your video...');
 
+  const tempFilePath = path.join(process.cwd(), `${Date.now()}_telegram.mp4`);
+
   try {
     // Download video from Telegram
     const fileLink = await ctx.telegram.getFileLink(video.file_id);
@@ -245,7 +277,6 @@ bot.on(message('video'), async (ctx) => {
     });
     const videoBuffer = Buffer.from(response.data);
 
-    const tempFilePath = path.join(process.cwd(), `${Date.now()}_telegram.mp4`);
     await fs.promises.writeFile(tempFilePath, videoBuffer);
 
     // Upload to MinIO
@@ -257,6 +288,11 @@ bot.on(message('video'), async (ctx) => {
     };
 
     await uploadToMinIO(bucketName, file);
+
+    // Delete temp file immediately after MinIO upload
+    await fs.promises.unlink(tempFilePath);
+    console.log(`🗑️  Deleted telegram upload temp file: ${tempFilePath}`);
+
     const fileUrl = `/${bucketName}/${file.originalname}`;
 
     // Save to database
@@ -281,13 +317,19 @@ bot.on(message('video'), async (ctx) => {
     // Start background processing
     processPredictionInBackground(
       result._id.toString(),
-      tempFilePath,
+      fileUrl,
       file.originalname,
       file.size,
       chatId,
     ).catch((err) => console.error('Background processing error:', err));
   } catch (error) {
     console.error('Error processing video:', error);
+
+    // Clean up temp file on error
+    if (fs.existsSync(tempFilePath)) {
+      await fs.promises.unlink(tempFilePath);
+    }
+
     ctx.reply(
       '❌ *Failed to process video*\n\n' +
         'An error occurred while uploading your video. Please try again.',
