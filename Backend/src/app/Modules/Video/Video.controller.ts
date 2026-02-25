@@ -8,6 +8,7 @@ import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
 import { VIDEOServices } from './Video.service';
 import { uploadToMinIO, minioClient } from './Video.utility';
+import { LLMService } from './Video.llm.service';
 
 const bucketName = 'video-files';
 
@@ -379,9 +380,99 @@ const getVIDEOFile = catchAsync(async (req, res) => {
   }
 });
 
+const generateVideoReport = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { reportType } = req.query;
+
+  // Get video from database
+  const video = await VIDEOServices.getSingleVIDEOFromDB(id);
+
+  if (!video) {
+    return res.status(404).json({
+      success: false,
+      message: 'Video not found',
+    });
+  }
+
+  if (video.status !== 'completed' || !video.prediction) {
+    return res.status(400).json({
+      success: false,
+      message: 'Video analysis not completed yet',
+    });
+  }
+
+  // Generate report
+  const report = await LLMService.generateReport(
+    video.prediction,
+    (reportType as 'summary' | 'workflow') || 'summary',
+  );
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: 'Report generated successfully',
+    data: {
+      videoId: id,
+      reportType: reportType || 'summary',
+      report,
+    },
+  });
+});
+
+const generateVideoReportStream = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { reportType } = req.query;
+
+  // Get video from database
+  const video = await VIDEOServices.getSingleVIDEOFromDB(id);
+
+  if (!video) {
+    return res.status(404).json({
+      success: false,
+      message: 'Video not found',
+    });
+  }
+
+  if (video.status !== 'completed' || !video.prediction) {
+    return res.status(400).json({
+      success: false,
+      message: 'Video analysis not completed yet',
+    });
+  }
+
+  // Set headers for streaming
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    // Generate report stream
+    const stream = await LLMService.generateReportStream(
+      video.prediction,
+      (reportType as 'summary' | 'workflow') || 'summary',
+    );
+
+    // Stream chunks to client
+    for await (const chunk of stream) {
+      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+    }
+
+    res.write('data: [DONE]\n\n');
+    res.end();
+  } catch (error) {
+    console.error('Streaming error:', error);
+    res.write(
+      `data: ${JSON.stringify({ error: 'Failed to generate report' })}\n\n`,
+    );
+    res.end();
+  }
+});
+
 export const VIDEOControllers = {
   createVIDEO,
   getSingleVIDEO,
   getAllVIDEOs,
   getVIDEOFile,
+  generateVideoReport,
+  generateVideoReportStream,
 };

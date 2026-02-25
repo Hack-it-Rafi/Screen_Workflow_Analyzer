@@ -115,9 +115,6 @@ export default function Dashboard() {
                         <Link to="/videos" className="bg-transparent border-2 border-cyan-500 text-cyan-400 px-6 py-3 rounded font-semibold hover:bg-cyan-500/10 transition font-mono">
                             📊 VIEW ALL VIDEOS
                         </Link>
-                        <button className="bg-transparent border-2 border-cyan-500 text-cyan-400 px-6 py-3 rounded font-semibold hover:bg-cyan-500/10 transition font-mono">
-                            📈 GENERATE REPORT
-                        </button>
                     </div>
                 </div>
 

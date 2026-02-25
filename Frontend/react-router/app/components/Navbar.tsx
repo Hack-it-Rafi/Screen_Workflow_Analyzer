@@ -19,7 +19,7 @@ export default function Navbar() {
             <div className="container mx-auto px-4">
                 <div className="flex items-center justify-between h-16">
                     <div className="flex items-center space-x-8">
-                        <Link to="/dashboard" className="text-xl font-bold text-green-400 hover:text-green-300 transition font-mono">
+                        <Link to="/" className="text-xl font-bold text-green-400 hover:text-green-300 transition font-mono">
                             <span className="text-cyan-400">&gt;_</span> VIDEO ANALYZER
                         </Link>
                         <div className="hidden md:flex space-x-4">

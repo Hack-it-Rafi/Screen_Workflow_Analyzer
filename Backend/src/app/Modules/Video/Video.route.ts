@@ -40,4 +40,13 @@ router.get(
   VIDEOControllers.getVIDEOFile,
 );
 
+// Report generation routes
+router.get('/:id/report', auth(), VIDEOControllers.generateVideoReport);
+
+router.get(
+  '/:id/report/stream',
+  auth(),
+  VIDEOControllers.generateVideoReportStream,
+);
+
 export const VIDEORouters = router;

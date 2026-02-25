@@ -1,0 +1,45 @@
+@startuml State Transition Diagram - Screen Activity Analyzer
+
+title State Transition Diagram - Screen Activity Analyzer
+
+skinparam state {
+  BackgroundColor LightYellow
+  BorderColor Black
+  ArrowColor Black
+  FontSize 14
+}
+
+' ===== MAIN USER FLOW =====
+[*] --> NotLoggedIn
+
+NotLoggedIn --> LoggingIn : Enter credentials
+LoggingIn --> LoggedIn : Success
+LoggingIn --> NotLoggedIn : Failed
+
+LoggedIn --> ViewingVideos : Navigate to Videos page
+
+ViewingVideos --> UploadingVideo : Click Upload
+UploadingVideo --> ViewingVideos : Upload complete
+
+ViewingVideos --> WatchingVideo : Click on video
+
+state WatchingVideo {
+  [*] --> LoadingVideo
+  LoadingVideo --> VideoProcessing : If status = processing
+  LoadingVideo --> VideoReady : If status = completed
+  
+  VideoReady --> Playing : Click play
+  Playing --> Paused : Click pause
+  Paused --> Playing : Click play
+  Playing --> Seeking : Click timestamp
+  Seeking --> Playing : Jump complete
+  
+  VideoReady --> ViewingReport : Click generate report
+  ViewingReport --> VideoReady : Close report
+}
+
+WatchingVideo --> ViewingVideos : Back button
+
+LoggedIn --> NotLoggedIn : Logout
+
+@enduml

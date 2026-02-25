@@ -7,6 +7,10 @@ export default function VideoDetail() {
     const [video, setVideo] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [videoRef, setVideoRef] = useState<HTMLVideoElement | null>(null);
+    const [showReportModal, setShowReportModal] = useState(false);
+    const [reportType, setReportType] = useState<'summary' | 'workflow'>('summary');
+    const [report, setReport] = useState<string>('');
+    const [generatingReport, setGeneratingReport] = useState(false);
     const axiosSecure = useAxiosSecure();
 
     const getVideoStreamUrl = (fileUrl: string) => {
@@ -41,6 +45,35 @@ export default function VideoDetail() {
         }
     };
 
+    // Generate AI report
+    const handleGenerateReport = async (type: 'summary' | 'workflow') => {
+        setReportType(type);
+        setGeneratingReport(true);
+        setReport('');
+        setShowReportModal(true);
+
+        try {
+            const response = await axiosSecure.get(`/videos/${id}/report?reportType=${type}`);
+            setReport(response.data.data.report);
+        } catch (error) {
+            console.error('Error generating report:', error);
+            setReport('Failed to generate report. Please try again.');
+        } finally {
+            setGeneratingReport(false);
+        }
+    };
+
+    // Download report as text file
+    const downloadReport = () => {
+        const blob = new Blob([report], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `video-report-${reportType}-${id}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     useEffect(() => {
         fetchVideo();
     }, [id]);
@@ -49,7 +82,7 @@ export default function VideoDetail() {
         if (video?.status === 'processing') {
             const interval = setInterval(() => {
                 fetchVideo();
-            }, 5000); 
+            }, 5000);
 
             return () => clearInterval(interval);
         }
@@ -115,7 +148,7 @@ export default function VideoDetail() {
     return (
         <div className="min-h-screen bg-linear-to-br from-gray-900 via-black to-gray-900">
             <div className="container mx-auto px-4 py-8">
-                
+
                 <div className="mb-6 flex items-center justify-between">
                     <Link to="/videos" className="text-cyan-400 hover:text-cyan-300 font-medium font-mono">
                         &lt;- BACK TO VIDEOS
@@ -124,7 +157,7 @@ export default function VideoDetail() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    
+
                     <div className="lg:col-span-2">
                         <div className="bg-black/80 border-2 border-gray-800 rounded-lg overflow-hidden shadow-[0_0_30px_rgba(0,255,0,0.2)]">
                             {/* Video Player */}
@@ -189,7 +222,7 @@ export default function VideoDetail() {
                                 <h2 className="text-xl font-bold text-green-400 mb-4 font-mono">[ PREDICTION RESULTS ]</h2>
 
                                 {/* Summary Section */}
-                                {formattedPrediction.summary && (
+                                {/* {formattedPrediction.summary && (
                                     <div className="bg-gray-900/50 border border-gray-800/30 rounded p-4 mb-4">
                                         <h3 className="text-lg font-semibold text-cyan-400 mb-3 font-mono">Summary</h3>
                                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
@@ -207,7 +240,7 @@ export default function VideoDetail() {
                                             </div>
                                         </div>
                                     </div>
-                                )}
+                                )} */}
 
                                 {/* Video Info */}
                                 {formattedPrediction.videoInfo && (
@@ -368,7 +401,7 @@ export default function VideoDetail() {
                         </div>
 
                         {/* Analysis Status */}
-                        <div className="bg-black/80 border-2 border-gray-800 rounded-lg p-6">
+                        <div className="bg-black/80 border-2 border-gray-800 rounded-lg p-6 mb-6">
                             <h2 className="text-xl font-bold text-green-400 mb-4 font-mono">[ ANALYSIS STATUS ]</h2>
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
@@ -391,8 +424,87 @@ export default function VideoDetail() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* AI Report Generation */}
+                        {video.status === 'completed' && (
+                            <div className="bg-black/80 border-2 border-gray-800 rounded-lg p-6">
+                                <h2 className="text-xl font-bold text-green-400 mb-4 font-mono">[ AI REPORT ]</h2>
+                                <p className="text-cyan-400 font-mono text-sm mb-4">
+                                    Generate a human-readable AI report from the analysis data
+                                </p>
+                                <div className="space-y-3">
+                                    <button
+                                        onClick={() => handleGenerateReport('summary')}
+                                        className="w-full px-4 py-3 bg-cyan-600 text-white rounded hover:bg-cyan-500 transition font-mono text-sm flex items-center justify-center gap-2"
+                                    >
+                                        <span>📄</span>
+                                        <span>SUMMARY REPORT</span>
+                                    </button>
+                                    <button
+                                        onClick={() => handleGenerateReport('workflow')}
+                                        className="w-full px-4 py-3 bg-green-600 text-black rounded hover:bg-green-500 transition font-mono text-sm flex items-center justify-center gap-2"
+                                    >
+                                        <span>📊</span>
+                                        <span>WORKFLOW REPORT</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
+
+                {/* Report Modal */}
+                {showReportModal && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                        <div className="bg-gray-900 border-2 border-cyan-500 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                            <div className="p-6 border-b border-gray-800 flex items-center justify-between">
+                                <h2 className="text-2xl font-bold text-green-400 font-mono">
+                                    [ AI {reportType.toUpperCase()} REPORT ]
+                                </h2>
+                                <button
+                                    onClick={() => setShowReportModal(false)}
+                                    className="text-cyan-400 hover:text-cyan-300 text-2xl font-bold"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {generatingReport ? (
+                                    <div className="flex flex-col items-center justify-center py-12">
+                                        <div className="text-6xl mb-4 animate-pulse">🤖</div>
+                                        <p className="text-cyan-400 font-mono text-lg">Generating AI Report...</p>
+                                        <p className="text-gray-400 font-mono text-sm mt-2">This may take 10-30 seconds</p>
+                                    </div>
+                                ) : (
+                                    <div className="bg-black/50 border border-gray-800 rounded p-6">
+                                        <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap leading-relaxed">
+                                            {report}
+                                        </pre>
+                                    </div>
+                                )}
+                            </div>
+
+                            {!generatingReport && report && (
+                                <div className="p-6 border-t border-gray-800 flex gap-3">
+                                    <button
+                                        onClick={downloadReport}
+                                        className="px-6 py-3 bg-green-600 text-black rounded hover:bg-green-500 transition font-mono flex items-center gap-2"
+                                    >
+                                        <span>📥</span>
+                                        <span>DOWNLOAD REPORT</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setShowReportModal(false)}
+                                        className="px-6 py-3 bg-gray-600 text-white rounded hover:bg-gray-500 transition font-mono"
+                                    >
+                                        CLOSE
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
