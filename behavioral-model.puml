@@ -1,0 +1,121 @@
+@startuml Screen Activity Analyzer - Behavioral Model
+
+title Screen Activity Analyzer - Behavioral Model
+
+' Define actors
+actor User as user
+actor "Telegram User" as tguser
+participant "Web Frontend" as web
+participant "Telegram Bot" as tgbot
+participant "Auth Service" as auth
+participant "Video Controller" as vidctrl
+participant "Video Service" as vidsvc
+participant "MinIO Storage" as minio
+participant "AI Prediction Service" as ai
+participant "LLM Service (Ollama)" as llm
+database "MongoDB" as db
+
+' ===== USE CASE 1: User Registration & Login =====
+group User Authentication Flow
+    user -> web: Access Application
+    web -> auth: Sign Up / Login
+    auth -> db: Create/Verify User
+    db --> auth: User Data
+    auth --> web: JWT Token + User Info
+    web --> user: Dashboard Access
+end
+
+' ===== USE CASE 2: Video Upload via Web =====
+group Video Upload Flow (Web)
+    user -> web: Upload MP4 Video
+    web -> vidctrl: POST /videos/create-video
+    
+    vidctrl -> vidctrl: Save to temp file
+    vidctrl -> minio: Upload video to MinIO bucket
+    minio --> vidctrl: Upload Success
+    vidctrl -> vidctrl: Delete temp file
+    
+    vidctrl -> db: Save video metadata\n(status: processing)
+    db --> vidctrl: Video ID
+    
+    vidctrl -> vidctrl: Start background\nprediction process
+    vidctrl --> web: Upload Success\n+ Video ID
+    web --> user: "Video uploaded.\nProcessing started."
+    
+    ' Background processing
+    group Background AI Analysis
+        vidctrl -> minio: Download video from MinIO
+        minio --> vidctrl: Video file stream
+        vidctrl -> vidctrl: Save to prediction temp file
+        
+        vidctrl -> ai: POST /predict\n(video file)
+        ai -> ai: Process video\n(3s chunks)
+        ai -> ai: Detect apps & actions\nwith confidence scores
+        ai --> vidctrl: Prediction JSON\n(apps, actions, timeline)
+        
+        vidctrl -> db: Update video\n(prediction + status: completed)
+        vidctrl -> vidctrl: Delete prediction temp file
+    end
+    
+    ' Auto-refresh on frontend
+    web -> vidctrl: GET /videos (polling every 5s)
+    vidctrl -> db: Fetch videos
+    db --> vidctrl: Video list with status
+    vidctrl --> web: Updated video status
+    web --> user: Show "Completed" status
+end
+
+' ===== USE CASE 3: Video Upload via Telegram =====
+group Video Upload Flow (Telegram)
+    tguser -> tgbot: /start
+    tgbot --> tguser: "Welcome! Send MP4 video"
+    
+    tguser -> tgbot: Send video file
+    tgbot -> tgbot: Download from Telegram
+    tgbot -> tgbot: Save to temp file
+    
+    tgbot -> minio: Upload to MinIO bucket
+    minio --> tgbot: Upload Success
+    tgbot -> tgbot: Delete temp file
+    
+    tgbot -> db: Save video metadata\n(status: processing,\ntelegramChatId)
+    db --> tgbot: Video ID
+    tgbot --> tguser: "Video uploaded!\nProcessing started..."
+    
+    ' Background processing
+    group Background AI Analysis (Telegram)
+        tgbot -> minio: Download video from MinIO
+        minio --> tgbot: Video file
+        tgbot -> tgbot: Save to prediction temp file
+        
+        tgbot -> ai: POST /predict
+        ai -> ai: Analyze video
+        ai --> tgbot: Prediction JSON
+        
+        tgbot -> db: Update video\n(prediction + status: completed)
+        tgbot -> tgbot: Delete prediction temp file
+        tgbot -> tgbot: Format results\n(first 10 activities)
+        tgbot --> tguser: "✅ Analysis Complete!\nSummary + Top 10 activities"
+    end
+end
+
+' ===== USE CASE 4: View Video Details & Predictions =====
+group View Video Analysis
+    user -> web: Click on video
+    web -> vidctrl: GET /videos/:id
+    vidctrl -> db: Fetch video by ID
+    db --> vidctrl: Video + Prediction JSON
+    vidctrl --> web: Video details
+    
+    web --> user: Show video player\n+ Activity timeline table
+    
+    user -> web: Click timestamp\n(e.g., "15s-18s")
+    web -> web: Parse time to seconds
+    web -> web: Seek video to 15s\n+ Auto-play
+    web --> user: Video jumps to timestamp
+end
+
+
+
+@enduml
+

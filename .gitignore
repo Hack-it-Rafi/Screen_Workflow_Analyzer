@@ -9,3 +9,4 @@ __pycache__
 *.avi
 .env
 .DS_Store
+coverage

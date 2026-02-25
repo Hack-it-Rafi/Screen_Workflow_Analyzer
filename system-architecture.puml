@@ -1,0 +1,850 @@
+@startuml Screen Activity Analyzer - System Architecture
+
+title Screen Activity Analyzer - UML Diagrams
+
+' ===== COMPONENT DIAGRAM =====
+package "Frontend - React Application" {
+  component [Web Interface] as Web
+  component [Authentication] as Auth
+  component [Video Dashboard] as Dashboard
+  component [Video Player] as Player
+  component [Report Generator] as ReportUI
+  
+  package "Context & Hooks" {
+    component [AuthContext] as AuthCtx
+    component [useAxiosSecure] as AxiosHook
+  }
+  
+  package "Firebase" {
+    component [Firebase Auth] as Firebase
+  }
+}
+
+package "Backend - Node.js/Express API" {
+  component [API Gateway] as API
+  component [Auth Middleware] as AuthMW
+  component [Video Controller] as VideoCtrl
+  component [User Controller] as UserCtrl
+  component [Video Service] as VideoSvc
+  component [User Service] as UserSvc
+  component [LLM Service] as LLMSvc
+  component [Error Handler] as ErrorHandler
+}
+
+package "External Services" {
+  component [Telegram Bot] as TgBot
+  database [MongoDB] as DB
+  storage [MinIO Storage] as MinIO
+  component [AI Prediction Service\n(Python Flask)] as AIPrediction
+  component [Ollama LLM] as Ollama
+}
+
+' Connections
+Web --> Auth
+Web --> Dashboard
+Web --> Player
+Web --> ReportUI
+Auth --> AuthCtx
+Dashboard --> AxiosHook
+Player --> AxiosHook
+ReportUI --> AxiosHook
+
+AuthCtx --> Firebase
+AxiosHook --> API
+
+API --> AuthMW
+API --> VideoCtrl
+API --> UserCtrl
+API --> ErrorHandler
+
+VideoCtrl --> VideoSvc
+UserCtrl --> UserSvc
+VideoSvc --> LLMSvc
+
+VideoSvc --> DB
+UserSvc --> DB
+VideoSvc --> MinIO
+VideoSvc --> AIPrediction
+LLMSvc --> Ollama
+
+TgBot --> MinIO
+TgBot --> DB
+TgBot --> AIPrediction
+
+@enduml
+
+@startuml Class Diagram - Domain Models
+
+title Class Diagram - Domain Models
+
+' ===== USER CLASS =====
+class User {
+  - _id: ObjectId
+  - email: string
+  - name: string
+  - phone: string
+  - password: string
+  - photo: string
+  - role: 'admin' | 'user'
+  - totalPdf: number
+  - createdAt: Date
+  - updatedAt: Date
+  --
+  + save(): Promise<User>
+  + validatePassword(): boolean
+}
+
+' ===== VIDEO CLASS =====
+class Video {
+  - _id: ObjectId
+  - caption: string
+  - fileUrl: string
+  - prediction: string (JSON)
+  - status: 'processing' | 'completed' | 'failed'
+  - user: ObjectId
+  - telegramChatId: number
+  - createdAt: Date
+  - updatedAt: Date
+  --
+  + save(): Promise<Video>
+  + updateStatus(status: string): void
+  + updatePrediction(data: string): void
+}
+
+' ===== PREDICTION DATA CLASS =====
+class PredictionData {
+  - predictions: Prediction[]
+  - summary: Summary
+  - video_info: VideoInfo
+  --
+  + getPredictionCount(): number
+  + getMostCommonApp(): string
+  + getMostCommonAction(): string
+}
+
+class Prediction {
+  - time_range: string
+  - app: string
+  - app_confidence: number
+  - action: string
+  - action_confidence: number
+  --
+  + isHighConfidence(): boolean
+}
+
+class Summary {
+  - total_chunks: number
+  - most_common_app: string
+  - most_common_action: string
+  - avg_app_confidence: number
+  - avg_action_confidence: number
+}
+
+class VideoInfo {
+  - duration_seconds: number
+  - num_chunks: number
+  - chunk_duration: number
+}
+
+' ===== AUTHENTICATION CLASS =====
+class AuthContext {
+  - user: User
+  - firebaseUser: FirebaseUser
+  - loading: boolean
+  - isAuthenticated: boolean
+  --
+  + login(email, password): Promise<boolean>
+  + logout(): Promise<void>
+  + createUser(email, password): Promise<any>
+  + updateUser(name, photo): Promise<void>
+}
+
+' ===== CONTROLLER CLASSES =====
+class VideoController {
+  --
+  + createVideo(req, res): Promise<void>
+  + getAllVideos(req, res): Promise<void>
+  + getVideoById(req, res): Promise<void>
+  + generateReport(req, res): Promise<void>
+  + streamVideo(req, res): Promise<void>
+  + deleteVideo(req, res): Promise<void>
+}
+
+class UserController {
+  --
+  + createUser(req, res): Promise<void>
+  + getAllUsers(req, res): Promise<void>
+  + getUserById(req, res): Promise<void>
+  + updateUser(req, res): Promise<void>
+  + deleteUser(req, res): Promise<void>
+}
+
+' ===== SERVICE CLASSES =====
+class VideoService {
+  --
+  + createVideo(data): Promise<Video>
+  + uploadToMinIO(file): Promise<string>
+  + downloadFromMinIO(fileUrl): Promise<Buffer>
+  + processPrediction(videoId): Promise<void>
+  + callAIPrediction(videoPath): Promise<any>
+  + updateVideoStatus(id, status): Promise<void>
+  + generateAIReport(videoId, type): Promise<string>
+}
+
+class UserService {
+  --
+  + createUser(data): Promise<User>
+  + findUserByEmail(email): Promise<User>
+  + getAllUsers(): Promise<User[]>
+  + updateUser(id, data): Promise<User>
+  + deleteUser(id): Promise<void>
+}
+
+class LLMService {
+  --
+  + generateReport(predictions, type): Promise<string>
+  + callOllama(prompt): Promise<string>
+  + formatPrompt(data, type): string
+}
+
+' ===== TELEGRAM BOT CLASS =====
+class TelegramBot {
+  - bot: Telegraf
+  - userProcessing: Map<number, string>
+  --
+  + handleStart(ctx): Promise<void>
+  + handleHelp(ctx): Promise<void>
+  + handleStatus(ctx): Promise<void>
+  + handleVideo(ctx): Promise<void>
+  + uploadToMinIO(file): Promise<string>
+  + processPrediction(videoId, chatId): Promise<void>
+  + sendResults(chatId, results): Promise<void>
+}
+
+' ===== RELATIONSHIPS =====
+Video "0..*" --> "0..1" User : owned by
+Video "1" *-- "1" PredictionData : contains
+PredictionData "1" *-- "many" Prediction : has
+PredictionData "1" *-- "1" Summary : has
+PredictionData "1" *-- "1" VideoInfo : has
+
+VideoController --> VideoService : uses
+UserController --> UserService : uses
+VideoService --> LLMService : uses
+
+VideoService ..> Video : manages
+UserService ..> User : manages
+
+TelegramBot ..> VideoService : uses
+TelegramBot ..> Video : creates
+
+@enduml
+
+@startuml Sequence Diagram - Video Upload (Web)
+
+title Sequence Diagram - Video Upload via Web Interface
+
+actor User
+participant "Web Frontend" as Web
+participant "Video Controller" as Ctrl
+participant "Video Service" as Svc
+participant "MinIO Storage" as MinIO
+participant "MongoDB" as DB
+participant "AI Service" as AI
+
+User -> Web: Upload MP4 video
+activate Web
+
+Web -> Web: Validate file (MP4)
+Web -> Ctrl: POST /videos/create-video\n(FormData with file)
+activate Ctrl
+
+Ctrl -> Ctrl: Save to temp file
+Ctrl -> MinIO: Upload video
+activate MinIO
+MinIO --> Ctrl: File URL
+deactivate MinIO
+
+Ctrl -> Ctrl: Delete temp file
+
+Ctrl -> DB: Save video metadata\n(status: processing)
+activate DB
+DB --> Ctrl: Video ID
+deactivate DB
+
+Ctrl --> Web: Upload Success + Video ID
+deactivate Ctrl
+
+Web --> User: Show success message\n"Processing started"
+deactivate Web
+
+' Background Processing
+group Background AI Analysis
+  Ctrl -> Svc: Start background processing
+  activate Svc
+  
+  Svc -> MinIO: Download video
+  activate MinIO
+  MinIO --> Svc: Video file
+  deactivate MinIO
+  
+  Svc -> Svc: Save to temp file
+  
+  Svc -> AI: POST /predict\n(video file)
+  activate AI
+  AI -> AI: Process video\n(3s chunks)
+  AI -> AI: Detect apps & actions
+  AI --> Svc: Prediction JSON
+  deactivate AI
+  
+  Svc -> DB: Update video\n(prediction + status: completed)
+  activate DB
+  DB --> Svc: Success
+  deactivate DB
+  
+  Svc -> Svc: Delete temp file
+  deactivate Svc
+end
+
+' Auto-refresh
+loop Every 5 seconds (while processing)
+  Web -> Ctrl: GET /videos
+  activate Ctrl
+  Ctrl -> DB: Fetch videos
+  activate DB
+  DB --> Ctrl: Video list
+  deactivate DB
+  Ctrl --> Web: Updated status
+  deactivate Ctrl
+  Web -> Web: Update UI
+end
+
+Web --> User: Show "Completed" status
+
+@enduml
+
+@startuml Sequence Diagram - Video Upload (Telegram)
+
+title Sequence Diagram - Video Upload via Telegram Bot
+
+actor "Telegram User" as TgUser
+participant "Telegram Bot" as TgBot
+participant "Telegram API" as TgAPI
+participant "MinIO Storage" as MinIO
+participant "MongoDB" as DB
+participant "AI Service" as AI
+
+TgUser -> TgBot: /start
+activate TgBot
+TgBot --> TgUser: "Welcome! Send MP4 video"
+deactivate TgBot
+
+TgUser -> TgBot: Send video file
+activate TgBot
+
+TgBot -> TgAPI: Download video file
+activate TgAPI
+TgAPI --> TgBot: Video buffer
+deactivate TgAPI
+
+TgBot -> TgBot: Save to temp file
+
+TgBot -> MinIO: Upload to MinIO
+activate MinIO
+MinIO --> TgBot: File URL
+deactivate MinIO
+
+TgBot -> TgBot: Delete temp file
+
+TgBot -> DB: Save video metadata\n(status: processing,\ntelegramChatId)
+activate DB
+DB --> TgBot: Video ID
+deactivate DB
+
+TgBot --> TgUser: "✅ Video uploaded!\nProcessing started..."
+
+' Background Processing
+group Background AI Analysis
+  TgBot -> MinIO: Download video
+  activate MinIO
+  MinIO --> TgBot: Video file
+  deactivate MinIO
+  
+  TgBot -> TgBot: Save to temp file
+  
+  TgBot -> AI: POST /predict
+  activate AI
+  AI -> AI: Analyze video\n(3s chunks)
+  AI --> TgBot: Prediction JSON
+  deactivate AI
+  
+  TgBot -> DB: Update video\n(prediction + status: completed)
+  activate DB
+  DB --> TgBot: Success
+  deactivate DB
+  
+  TgBot -> TgBot: Delete temp file
+  
+  TgBot -> TgBot: Format results\n(first 10 activities)
+  
+  TgBot --> TgUser: "✅ Analysis Complete!\nSummary + Activities"
+end
+
+deactivate TgBot
+
+@enduml
+
+@startuml Sequence Diagram - View Video Details
+
+title Sequence Diagram - View Video Details & Seek to Timestamp
+
+actor User
+participant "Web Frontend" as Web
+participant "Video Player" as Player
+participant "Video Controller" as Ctrl
+participant "MongoDB" as DB
+
+User -> Web: Click on video
+activate Web
+
+Web -> Ctrl: GET /videos/:id
+activate Ctrl
+
+Ctrl -> DB: Fetch video by ID
+activate DB
+DB --> Ctrl: Video + Prediction JSON
+deactivate DB
+
+Ctrl --> Web: Video details
+deactivate Ctrl
+
+Web -> Player: Initialize video player
+activate Player
+Player -> Ctrl: GET /videos/file/:filename\n(video streaming)
+activate Ctrl
+Ctrl --> Player: Video stream\n(with Range support)
+deactivate Ctrl
+
+Web --> User: Show video player\n+ Activity timeline
+deactivate Web
+deactivate Player
+
+User -> Web: Click timestamp\n(e.g., "15s-18s")
+activate Web
+
+Web -> Web: Parse time to seconds\n(extract start time)
+
+Web -> Player: Seek to 15s
+activate Player
+Player -> Player: video.currentTime = 15
+Player -> Player: video.play()
+
+Player -> Player: Scroll into view
+Player --> User: Video jumps to timestamp\n+ Auto-plays
+deactivate Player
+deactivate Web
+
+@enduml
+
+@startuml Sequence Diagram - Generate AI Report
+
+title Sequence Diagram - Generate AI Report (LLM)
+
+actor User
+participant "Web Frontend" as Web
+participant "Video Controller" as Ctrl
+participant "Video Service" as Svc
+participant "LLM Service" as LLM
+participant "Ollama" as AI
+participant "MongoDB" as DB
+
+User -> Web: Click "Generate Summary Report"
+activate Web
+
+Web -> Web: Show loading modal\n"Generating AI Report..."
+
+Web -> Ctrl: GET /videos/:id/report\n?reportType=summary
+activate Ctrl
+
+Ctrl -> DB: Fetch video by ID
+activate DB
+DB --> Ctrl: Video with predictions
+deactivate DB
+
+Ctrl -> Svc: generateAIReport(videoId, 'summary')
+activate Svc
+
+Svc -> Svc: Parse prediction JSON
+
+Svc -> LLM: generateReport(predictions, 'summary')
+activate LLM
+
+LLM -> LLM: Format prompt\n(create summary request)
+
+LLM -> AI: POST /api/generate\n(with prompt)
+activate AI
+AI -> AI: Process with LLM model\n(analyze predictions)
+AI --> LLM: Generated summary text
+deactivate AI
+
+LLM --> Svc: Formatted report
+deactivate LLM
+
+Svc --> Ctrl: Report text
+deactivate Svc
+
+Ctrl --> Web: { report: "..." }
+deactivate Ctrl
+
+Web -> Web: Hide loading\nDisplay report
+
+Web --> User: Show AI-generated report
+deactivate Web
+
+User -> Web: Click "Download Report"
+activate Web
+Web -> Web: Create blob from text
+Web -> Web: Trigger download\nvideo-report-summary-{id}.txt
+Web --> User: File downloaded
+deactivate Web
+
+@enduml
+
+@startuml Deployment Diagram
+
+title Deployment Diagram - Screen Activity Analyzer
+
+node "Client Device" {
+  artifact "Web Browser" as Browser {
+    component [React Frontend]
+    component [Firebase Auth SDK]
+  }
+  
+  artifact "Telegram App" as TgApp {
+    component [Telegram Client]
+  }
+}
+
+node "Application Server" {
+  artifact "Node.js Runtime" {
+    component [Express API Server]
+    component [Telegram Bot Service]
+  }
+}
+
+node "Database Server" {
+  database "MongoDB" {
+    folder "Collections" {
+      artifact [Users]
+      artifact [Videos]
+    }
+  }
+}
+
+node "Object Storage Server" {
+  storage "MinIO" {
+    folder "Buckets" {
+      artifact [Videos Bucket]
+    }
+  }
+}
+
+node "AI Service Server" {
+  artifact "Python Flask" {
+    component [AI Prediction API]
+    component [Video Processing]
+  }
+}
+
+node "LLM Server" {
+  artifact "Ollama Service" {
+    component [LLM Model]
+    component [Report Generation]
+  }
+}
+
+cloud "Firebase Cloud" {
+  component [Firebase Authentication]
+}
+
+' Connections
+Browser -down-> [Express API Server] : HTTPS/REST
+Browser -up-> [Firebase Authentication] : Authentication
+TgApp -down-> [Telegram Bot Service] : Telegram API
+[Express API Server] -down-> MongoDB : Mongoose
+[Express API Server] -right-> MinIO : S3 API
+[Express API Server] -down-> [AI Prediction API] : HTTP/POST
+[Express API Server] -right-> [LLM Model] : HTTP/POST
+[Telegram Bot Service] -down-> MongoDB : Mongoose
+[Telegram Bot Service] -right-> MinIO : S3 API
+[Telegram Bot Service] -down-> [AI Prediction API] : HTTP/POST
+
+@enduml
+
+@startuml State Diagram - Video Processing
+
+title State Diagram - Video Lifecycle
+
+[*] --> Uploaded : User uploads video
+
+Uploaded --> Processing : Save to storage\nCreate DB record
+
+state Processing {
+  [*] --> DownloadingFromStorage
+  DownloadingFromStorage --> PreparingForAI : Download complete
+  PreparingForAI --> SendingToAI : Save to temp file
+  SendingToAI --> AnalyzingVideo : POST /predict
+  AnalyzingVideo --> ReceivingResults : AI processes chunks
+  ReceivingResults --> [*] : Results received
+}
+
+Processing --> Completed : Prediction success\nUpdate DB
+Processing --> Failed : Error occurred\nUpdate DB
+
+Completed --> ViewingResults : User views video
+ViewingResults --> GeneratingReport : User requests AI report
+GeneratingReport --> ViewingResults : Report generated
+
+Failed --> Retrying : Manual retry
+Retrying --> Processing : Retry processing
+
+Completed --> Deleted : User deletes video
+Failed --> Deleted : User deletes video
+
+Deleted --> [*]
+
+@enduml
+
+@startuml Use Case Diagram
+
+title Use Case Diagram - Screen Activity Analyzer
+
+left to right direction
+
+actor "Web User" as WebUser
+actor "Telegram User" as TgUser
+actor "Admin" as Admin
+
+rectangle "Screen Activity Analyzer System" {
+  usecase "Register Account" as UC1
+  usecase "Login" as UC2
+  usecase "Upload Video (Web)" as UC3
+  usecase "Upload Video (Telegram)" as UC4
+  usecase "View Video List" as UC5
+  usecase "Filter Videos" as UC6
+  usecase "View Video Details" as UC7
+  usecase "Play Video" as UC8
+  usecase "Seek to Timestamp" as UC9
+  usecase "Generate AI Report" as UC10
+  usecase "Download Report" as UC11
+  usecase "Download Video" as UC12
+  usecase "Delete Video" as UC13
+  usecase "Check Processing Status" as UC14
+  usecase "Manage Users" as UC15
+}
+
+rectangle "External Systems" {
+  usecase "AI Video Analysis" as EXT1
+  usecase "LLM Report Generation" as EXT2
+  usecase "Store Video Files" as EXT3
+}
+
+' Web User relationships
+WebUser --> UC1
+WebUser --> UC2
+WebUser --> UC3
+WebUser --> UC5
+WebUser --> UC6
+WebUser --> UC7
+WebUser --> UC8
+WebUser --> UC9
+WebUser --> UC10
+WebUser --> UC11
+WebUser --> UC12
+WebUser --> UC13
+
+' Telegram User relationships
+TgUser --> UC4
+TgUser --> UC14
+
+' Admin relationships
+Admin --> UC15
+Admin --|> WebUser : extends
+
+' Use case dependencies
+UC3 ..> EXT1 : uses
+UC4 ..> EXT1 : uses
+UC3 ..> EXT3 : uses
+UC4 ..> EXT3 : uses
+UC10 ..> EXT2 : uses
+
+UC7 ..> UC8 : includes
+UC8 ..> UC9 : includes
+
+@enduml
+
+@startuml Package Diagram - Backend Architecture
+
+title Package Diagram - Backend Module Architecture
+
+package "Backend API" {
+  
+  package "Entry Point" {
+    [server.ts]
+    [app.ts]
+  }
+  
+  package "Routes" {
+    [index.ts (Router)]
+  }
+  
+  package "Middlewares" {
+    [auth.ts]
+    [globalErrorHandler.ts]
+    [notFound.ts]
+    [validateRequest.ts]
+  }
+  
+  package "Modules" {
+    
+    package "User Module" {
+      [User.controller.ts]
+      [User.service.ts]
+      [User.model.ts]
+      [User.route.ts]
+      [User.validation.ts]
+      [User.interface.ts]
+    }
+    
+    package "Video Module" {
+      [Video.controller.ts]
+      [Video.service.ts]
+      [Video.model.ts]
+      [Video.route.ts]
+      [Video.validation.ts]
+      [Video.interface.ts]
+      [Video.llm.service.ts]
+      [Video.utility.ts]
+    }
+    
+    package "Telegram Module" {
+      [telegram.bot.ts]
+    }
+  }
+  
+  package "Utils" {
+    [catchAsync.ts]
+    [sendResponse.ts]
+    [QueryBuilder.ts]
+  }
+  
+  package "Errors" {
+    [AppError.ts]
+    [handleZodError.ts]
+    [handleValidationError.ts]
+    [handleCastError.ts]
+    [handleDuplicateError.ts]
+  }
+  
+  package "Config" {
+    [index.ts (Config)]
+  }
+}
+
+' Dependencies
+[server.ts] --> [app.ts]
+[app.ts] --> [index.ts (Router)]
+[app.ts] --> [globalErrorHandler.ts]
+[app.ts] --> [notFound.ts]
+
+[index.ts (Router)] --> [User.route.ts]
+[index.ts (Router)] --> [Video.route.ts]
+
+[User.route.ts] --> [User.controller.ts]
+[User.route.ts] --> [auth.ts]
+[User.route.ts] --> [validateRequest.ts]
+
+[Video.route.ts] --> [Video.controller.ts]
+[Video.route.ts] --> [auth.ts]
+[Video.route.ts] --> [validateRequest.ts]
+
+[User.controller.ts] --> [User.service.ts]
+[User.controller.ts] --> [catchAsync.ts]
+[User.controller.ts] --> [sendResponse.ts]
+
+[Video.controller.ts] --> [Video.service.ts]
+[Video.controller.ts] --> [catchAsync.ts]
+[Video.controller.ts] --> [sendResponse.ts]
+
+[User.service.ts] --> [User.model.ts]
+[Video.service.ts] --> [Video.model.ts]
+[Video.service.ts] --> [Video.llm.service.ts]
+[Video.service.ts] --> [Video.utility.ts]
+
+[telegram.bot.ts] --> [Video.model.ts]
+[telegram.bot.ts] --> [Video.utility.ts]
+
+[Video.llm.service.ts] --> [Config]
+[auth.ts] --> [Config]
+
+@enduml
+
+@startuml ER Diagram - Database Schema
+
+title Entity Relationship Diagram - Database Schema
+
+' Define entities
+entity "User" as user {
+  * _id : ObjectId <<PK>>
+  --
+  * email : String <<unique>>
+  * name : String
+  * phone : String <<unique>>
+  * password : String
+  photo : String
+  * role : Enum('admin', 'user')
+  totalPdf : Number
+  createdAt : Date
+  updatedAt : Date
+}
+
+entity "Video" as video {
+  * _id : ObjectId <<PK>>
+  --
+  caption : String
+  fileUrl : String
+  prediction : String (JSON)
+  * status : Enum('processing', 'completed', 'failed')
+  user : ObjectId <<FK>>
+  telegramChatId : Number
+  createdAt : Date
+  updatedAt : Date
+}
+
+' Relationships
+user ||--o{ video : "owns (0..many)"
+
+note right of video
+  **Status Flow:**
+  processing → completed
+  processing → failed
+  
+  **Prediction JSON Structure:**
+  {
+    predictions: [...],
+    summary: {...},
+    video_info: {...}
+  }
+end note
+
+note left of user
+  **Password:** Hashed with bcrypt
+  **Role:** Default is 'user'
+  **Authentication:** 
+  - Firebase Auth
+  - JWT tokens
+end note
+
+@enduml
+
+@enduml
